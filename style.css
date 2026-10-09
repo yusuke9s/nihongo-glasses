@@ -68,14 +68,8 @@ input:focus, button:focus {
 
 .row button { flex: 1; }
 
+#candidates { flex-direction: column; }
+
+.candidate { font-size: 20px; padding: 10px 14px; text-align: left; }
+
 [hidden] { display: none !important; }
-
-#mic {
-  font-size: 28px;
-  padding: 18px;
-}
-
-#mic.recording {
-  border-color: #ff6b6b;
-  color: #ff6b6b;
-}

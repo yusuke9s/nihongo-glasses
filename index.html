@@ -9,13 +9,13 @@
 </head>
 <body>
   <main id="app">
-    <button class="focusable" id="mic">マイクで話す</button>
-    <input class="focusable" id="say" type="text" autocomplete="off" placeholder="文字入力で話す（予備）">
+    <input class="focusable" id="say" type="text" autocomplete="off" placeholder="ここをつまんで日本語で話す">
     <p id="status">準備OK</p>
     <section class="card" id="heardCard" hidden>
       <p class="label">聞き取り</p>
       <p id="heard"></p>
     </section>
+    <div class="row" id="candidates" hidden></div>
     <section class="card" id="answerCard" hidden>
       <p class="label" id="pageInfo">回答</p>
       <p id="answer"></p>
