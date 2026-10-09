@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="mrbd-web-app-capable" content="yes">
+  <title>日本語アシスタント</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="app">
+    <input class="focusable" id="say" type="text" autocomplete="off" placeholder="ここをつまんで日本語で話す">
+    <p id="status">準備OK</p>
+    <section class="card" id="heardCard" hidden>
+      <p class="label">聞き取り</p>
+      <p id="heard"></p>
+    </section>
+    <section class="card" id="answerCard" hidden>
+      <p class="label" id="pageInfo">回答</p>
+      <p id="answer"></p>
+    </section>
+    <div class="row">
+      <button class="focusable" id="next" hidden>次へ</button>
+      <button class="focusable" id="speak" hidden>読み上げ</button>
+      <button class="focusable" id="reset">新しい会話</button>
+    </div>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
