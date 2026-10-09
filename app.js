@@ -64,12 +64,14 @@
     });
   }
 
-  function ask(text) {
+  function ask(text, audioBase64) {
     if (busy) return;
     if (!token) { setStatus('トークンがありません（URLに ?k= を付けて追加してください）'); return; }
     busy = true;
-    setStatus('考え中… (' + text + ')');
-    post('/api/ask', { text: text, history: history, location: location })
+    setStatus(audioBase64 ? '考え中…' : '考え中… (' + text + ')');
+    var body = { history: history, location: location };
+    if (audioBase64) body.audio = audioBase64; else body.text = text;
+    post('/api/ask', body)
       .then(function (r) {
         return r.json().then(function (data) {
           if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
@@ -88,7 +90,7 @@
         history.push({ role: 'user', content: heard });
         history.push({ role: 'assistant', content: lastAnswer });
         history = history.slice(-10);
-        setStatus('もう一度話すときは上の欄をつまむ');
+        setStatus('もう一度話すときは「マイクで話す」をつまむ');
         speak();
       })
       .catch(function (err) { setStatus('エラー: ' + err.message); })
@@ -113,6 +115,116 @@
       .catch(function (err) { setStatus(err.name === 'NotAllowedError' ? '「読み上げ」を押すと再生します' : err.message); });
   }
 
+  var recorder = null;
+
+  function startRecording() {
+    if (busy) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setStatus('マイク非対応: getUserMediaがありません');
+      return;
+    }
+    setStatus('マイクを準備中…');
+    navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } })
+      .then(function (stream) {
+        var Ctx = window.AudioContext || window.webkitAudioContext;
+        var ctx = new Ctx();
+        var source = ctx.createMediaStreamSource(stream);
+        var processor = ctx.createScriptProcessor(4096, 1, 1);
+        var chunks = [];
+        var started = Date.now();
+        var lastVoice = Date.now();
+        var heardVoice = false;
+        processor.onaudioprocess = function (e) {
+          var data = e.inputBuffer.getChannelData(0);
+          chunks.push(new Float32Array(data));
+          var sum = 0;
+          for (var i = 0; i < data.length; i++) sum += data[i] * data[i];
+          var rms = Math.sqrt(sum / data.length);
+          if (rms > 0.015) { lastVoice = Date.now(); heardVoice = true; }
+          var elapsed = Date.now() - started;
+          if ((heardVoice && Date.now() - lastVoice > 1500) || (!heardVoice && elapsed > 6000) || elapsed > 15000) stopRecording();
+        };
+        source.connect(processor);
+        processor.connect(ctx.destination);
+        recorder = { stream: stream, ctx: ctx, source: source, processor: processor, chunks: chunks, rate: ctx.sampleRate };
+        $('mic').classList.add('recording');
+        $('mic').textContent = '聞いています…（つまむと終了）';
+        setStatus('日本語で話してください');
+      })
+      .catch(function (err) {
+        setStatus('マイク使用不可: ' + err.name + ' ' + err.message);
+      });
+  }
+
+  function stopRecording() {
+    if (!recorder) return;
+    var r = recorder;
+    recorder = null;
+    r.processor.onaudioprocess = null;
+    r.source.disconnect();
+    r.processor.disconnect();
+    r.stream.getTracks().forEach(function (t) { t.stop(); });
+    r.ctx.close();
+    $('mic').classList.remove('recording');
+    $('mic').textContent = 'マイクで話す';
+    var samples = merge(r.chunks);
+    if (samples.length < r.rate * 0.3) { setStatus('録音が短すぎました'); return; }
+    ask('', toWavBase64(downsample(samples, r.rate, 16000), 16000));
+  }
+
+  function merge(chunks) {
+    var length = chunks.reduce(function (n, c) { return n + c.length; }, 0);
+    var out = new Float32Array(length);
+    var offset = 0;
+    chunks.forEach(function (c) { out.set(c, offset); offset += c.length; });
+    return out;
+  }
+
+  function downsample(samples, from, to) {
+    if (from <= to) return samples;
+    var ratio = from / to;
+    var out = new Float32Array(Math.floor(samples.length / ratio));
+    for (var i = 0; i < out.length; i++) {
+      var start = Math.floor(i * ratio);
+      var end = Math.min(Math.floor((i + 1) * ratio), samples.length);
+      var sum = 0;
+      for (var j = start; j < end; j++) sum += samples[j];
+      out[i] = sum / Math.max(1, end - start);
+    }
+    return out;
+  }
+
+  function toWavBase64(samples, rate) {
+    var buffer = new ArrayBuffer(44 + samples.length * 2);
+    var view = new DataView(buffer);
+    var writeString = function (offset, str) { for (var i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i)); };
+    writeString(0, 'RIFF');
+    view.setUint32(4, 36 + samples.length * 2, true);
+    writeString(8, 'WAVE');
+    writeString(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, rate, true);
+    view.setUint32(28, rate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeString(36, 'data');
+    view.setUint32(40, samples.length * 2, true);
+    for (var i = 0; i < samples.length; i++) {
+      var v = Math.max(-1, Math.min(1, samples[i]));
+      view.setInt16(44 + i * 2, v < 0 ? v * 0x8000 : v * 0x7fff, true);
+    }
+    var bytes = new Uint8Array(buffer);
+    var binary = '';
+    for (var k = 0; k < bytes.length; k += 0x8000) binary += String.fromCharCode.apply(null, bytes.subarray(k, k + 0x8000));
+    return btoa(binary);
+  }
+
+  $('mic').addEventListener('click', function () {
+    if (recorder) stopRecording(); else startRecording();
+  });
+
   $('say').addEventListener('change', function (e) {
     var text = e.target.value.trim();
     e.target.value = '';
@@ -136,7 +248,7 @@
     $('speak').hidden = true;
     if (audio) audio.pause();
     setStatus('新しい会話を始めました');
-    $('say').focus();
+    $('mic').focus();
   });
 
   var focusables = function () {
@@ -158,5 +270,5 @@
   refreshLocation();
   setInterval(refreshLocation, 120000);
   if (!token) setStatus('トークンがありません（URLに ?k= を付けて追加してください）');
-  $('say').focus();
+  $('mic').focus();
 })();
