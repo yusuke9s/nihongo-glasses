@@ -152,7 +152,12 @@
         setStatus('日本語で話してください');
       })
       .catch(function (err) {
-        setStatus('マイク使用不可: ' + err.name + ' ' + err.message);
+        var message = 'マイク使用不可: ' + err.name + ' ' + err.message;
+        if (!navigator.mediaDevices.enumerateDevices) { setStatus(message); return; }
+        navigator.mediaDevices.enumerateDevices().then(function (devices) {
+          var inputs = devices.filter(function (d) { return d.kind === 'audioinput'; }).length;
+          setStatus(message + '（マイク数: ' + inputs + '）');
+        }, function () { setStatus(message); });
       });
   }
 
